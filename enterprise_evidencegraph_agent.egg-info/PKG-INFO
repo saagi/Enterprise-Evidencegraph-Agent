@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: enterprise-evidencegraph-agent
+Version: 0.1.0
+Summary: Evidence-grounded enterprise investigation agent across Jira, Slack, GitHub, and documents.
+Requires-Python: <3.13,>=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: pydantic<3.0,>=2.9
+Requires-Dist: pydantic-settings<3.0,>=2.5
+Provides-Extra: dev
+Requires-Dist: pytest<9.0,>=8.3; extra == "dev"
+Requires-Dist: pytest-cov<6.0,>=5.0; extra == "dev"
+Requires-Dist: ruff<1.0,>=0.7; extra == "dev"
+Requires-Dist: mypy<2.0,>=1.13; extra == "dev"
+Dynamic: license-file
+
+# Enterprise-Evidencegraph-Agent
+A production-grade enterprise AI agent that reconstructs facts, events, decisions, and current state across Jira, Slack, GitHub, and internal documents using an evidence graph
