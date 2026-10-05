@@ -60,7 +60,10 @@ class EntityResolver:
     """Resolves entity candidates to canonical entities."""
 
     def __init__(self, entity_repository: EntityRepository) -> None:
-        self._entity_repository = entity_repository
+            self._entity_repository = entity_repository
+    
+    def get_entity(self, entity_id: str) -> Entity | None:
+        return self._entity_repository.get(entity_id)
 
     def resolve(self, candidate: EntityCandidate) -> EntityResolutionResult:
         if candidate.normalized_id is None:

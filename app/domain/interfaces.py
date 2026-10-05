@@ -4,8 +4,8 @@ from typing import Any, Protocol
 from app.domain.models import (
     CanonicalArtifact,
     Entity,
-    Evidence,
     Event,
+    Evidence,
     Relationship,
 )
 

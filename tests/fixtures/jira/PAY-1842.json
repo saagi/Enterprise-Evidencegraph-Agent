@@ -1,0 +1,41 @@
+{
+  "id": "1001842",
+  "key": "PAY-1842",
+  "fields": {
+    "summary": "Payment requests fail after authentication token refresh",
+    "description": "Some payment requests are failing after the authentication token is refreshed. Investigation is ongoing.",
+    "status": {
+      "name": "In Progress"
+    },
+    "priority": {
+      "name": "High"
+    },
+    "project": {
+      "key": "PAY",
+      "name": "Payments Platform"
+    },
+    "assignee": {
+      "displayName": "Alice Chen"
+    },
+    "created": "2026-09-18T09:15:00Z",
+    "updated": "2026-09-20T14:30:00Z",
+    "comments": [
+      {
+        "id": "comment-101",
+        "author": {
+          "displayName": "Alice Chen"
+        },
+        "created": "2026-09-19T11:20:00Z",
+        "body": "The issue appears related to token refresh handling."
+      },
+      {
+        "id": "comment-102",
+        "author": {
+          "displayName": "Bob Rao"
+        },
+        "created": "2026-09-20T14:30:00Z",
+        "body": "Fix is being implemented in PR #829."
+      }
+    ]
+  }
+}
