@@ -63,13 +63,38 @@ def create_default_entity_registry() -> EntityIdentificationRegistry:
 
     jira_pattern = EntityPattern(
         entity_type=EntityType.JIRA_TICKET,
-        pattern=re.compile(r"\b[A-Z][A-Z0-9_]*-\d+\b", re.IGNORECASE),
+        pattern=re.compile(
+            r"\b[A-Z][A-Z0-9_]*-\d+\b",
+            re.IGNORECASE,
+        ),
         normalize=normalize_jira_ticket,
         confidence=0.99,
+    )
+
+    github_pr_pattern = EntityPattern(
+        entity_type=EntityType.GITHUB_PR,
+        pattern=re.compile(
+            r"\bPR\s*#?\s*\d+\b",
+            re.IGNORECASE,
+        ),
+        normalize=normalize_github_pr,
+        confidence=0.90,
     )
 
     return EntityIdentificationRegistry(
         patterns=[
             jira_pattern,
+            github_pr_pattern,
         ]
     )
+
+
+def normalize_github_pr(mention: str) -> str:
+    """Normalize a GitHub PR mention into a temporary identifier."""
+
+    match = re.search(r"\d+", mention)
+
+    if match is None:
+        raise ValueError(f"Invalid GitHub PR mention: {mention}")
+
+    return f"github:pr:{match.group(0)}"

@@ -61,3 +61,37 @@ def test_returns_empty_list_when_no_entity_is_found() -> None:
     )
 
     assert candidates == []
+
+
+def test_identifies_github_pr() -> None:
+    registry = create_default_entity_registry()
+
+    candidates = registry.identify(
+        text="Fix is being implemented in PR #829.",
+        source=Source.JIRA,
+        artifact_id="artifact:jira:PAY-1842",
+    )
+
+    assert len(candidates) == 1
+
+    candidate = candidates[0]
+
+    assert candidate.mention == "PR #829"
+    assert candidate.entity_type == EntityType.GITHUB_PR
+    assert candidate.normalized_id == "github:pr:829"
+    assert candidate.confidence == 0.90
+
+
+def test_identifies_jira_ticket_and_github_pr() -> None:
+    registry = create_default_entity_registry()
+
+    candidates = registry.identify(
+        text="PAY-1842 is fixed by PR #829.",
+        source=Source.SLACK,
+        artifact_id="artifact:slack:thread:123",
+    )
+
+    assert len(candidates) == 2
+
+    assert candidates[0].normalized_id == "jira:PAY-1842"
+    assert candidates[1].normalized_id == "github:pr:829"

@@ -63,31 +63,47 @@ def make_artifact() -> CanonicalArtifact:
         updated_at=now,
     )
 
-
-def test_processor_identifies_and_resolves_entity() -> None:
+def test_processor_identifies_resolved_and_unresolved_entities() -> None:
     entity = make_pay_entity()
 
     repository = FakeEntityRepository([entity])
-    resolver = EntityResolver(repository)
 
     processor = ArtifactProcessor(
         entity_registry=create_default_entity_registry(),
-        entity_resolver=resolver,
+        entity_resolver=EntityResolver(repository),
     )
 
     result = processor.process(make_artifact())
 
     assert result.artifact_id == "artifact:jira:PAY-1842"
 
+    # Only canonical entities that successfully resolved appear here.
     assert len(result.entities) == 1
     assert result.entities[0].id == "jira:PAY-1842"
 
-    assert len(result.entity_resolutions) >= 1
-
-    assert all(
-        resolution.status == EntityResolutionStatus.RESOLVED
+    resolved = [
+        resolution
         for resolution in result.entity_resolutions
+        if resolution.status == EntityResolutionStatus.RESOLVED
+    ]
+
+    unresolved = [
+        resolution
+        for resolution in result.entity_resolutions
+        if resolution.status == EntityResolutionStatus.UNRESOLVED
+    ]
+
+    assert len(resolved) == 3
+    assert all(
+        resolution.entity_id == "jira:PAY-1842"
+        for resolution in resolved
     )
+
+    assert len(unresolved) == 1
+
+    assert unresolved[0].mention == "PR #829"
+    assert unresolved[0].entity_type == EntityType.GITHUB_PR
+    assert unresolved[0].entity_id is None
 
 
 def test_processor_deduplicates_same_entity_mentions() -> None:
