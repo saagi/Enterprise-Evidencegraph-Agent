@@ -1,4 +1,6 @@
+from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -12,11 +14,16 @@ from app.domain.models import (
     Evidence,
     EvidenceLocation,
     EvidenceType,
+    Relationship,
+    RelationshipType,
     Source,
 )
+from app.models.gateway import LLMGateway
 
-from datetime import datetime
-from typing import Any
+
+# ---------------------------------------------------------------------------
+# Entity Resolution
+# ---------------------------------------------------------------------------
 
 
 class EntityResolutionStatus(StrEnum):
@@ -36,54 +43,70 @@ class EntityResolutionMethod(StrEnum):
 class EntityCandidate(BaseModel):
     """Potential entity reference detected inside an artifact."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
 
     mention: str
     entity_type: EntityType | None = None
-
     normalized_id: str | None = None
-
     source: Source
     artifact_id: str
-
-    confidence: float = Field(ge=0.0, le=1.0)
-
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
     context: str | None = None
 
 
 class EntityResolutionResult(BaseModel):
     """Result of attempting to resolve an entity candidate."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
 
     mention: str
-
     entity_id: str | None = None
     entity_type: EntityType | None = None
-
     status: EntityResolutionStatus
-    confidence: float = Field(ge=0.0, le=1.0)
-
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
     method: EntityResolutionMethod | None = None
-
-    candidate_ids: list[str] = Field(default_factory=list)
+    candidate_ids: list[str] = Field(
+        default_factory=list
+    )
 
 
 class EntityResolver:
     """Resolves entity candidates to canonical entities."""
 
-    def __init__(self, entity_repository: EntityRepository) -> None:
-            self._entity_repository = entity_repository
-    
-    def get_entity(self, entity_id: str) -> Entity | None:
+    def __init__(
+        self,
+        entity_repository: EntityRepository,
+    ) -> None:
+        self._entity_repository = entity_repository
+
+    def get_entity(
+        self,
+        entity_id: str,
+    ) -> Entity | None:
         return self._entity_repository.get(entity_id)
 
-    def resolve(self, candidate: EntityCandidate) -> EntityResolutionResult:
+    def resolve(
+        self,
+        candidate: EntityCandidate,
+    ) -> EntityResolutionResult:
         if candidate.normalized_id is None:
             return self._unresolved(candidate)
 
-        # Step 1: canonical ID lookup
-        entity = self._entity_repository.get(candidate.normalized_id)
+        entity = self._entity_repository.get(
+            candidate.normalized_id
+        )
 
         if entity is not None:
             return self._resolved(
@@ -126,6 +149,10 @@ class EntityResolver:
             candidate_ids=[],
         )
 
+
+# ---------------------------------------------------------------------------
+# Event Extraction
+# ---------------------------------------------------------------------------
 
 
 class EventExtractor:
@@ -173,13 +200,18 @@ class EventExtractor:
                 source=artifact.source,
                 source_id=artifact.source_id,
                 data={
-                    "status": artifact.content.get("status"),
+                    "status": artifact.content.get(
+                        "status"
+                    ),
                 },
                 created_at=artifact.updated_at,
             ),
         ]
 
-        comments = artifact.content.get("comments", [])
+        comments = artifact.content.get(
+            "comments",
+            [],
+        )
 
         if not isinstance(comments, list):
             return events
@@ -215,11 +247,17 @@ class EventExtractor:
             return None
 
         timestamp = datetime.fromisoformat(
-            created.replace("Z", "+00:00")
+            created.replace(
+                "Z",
+                "+00:00",
+            )
         )
 
         return Event(
-            id=f"event:{artifact.id}:comment:{comment_id}",
+            id=(
+                f"event:{artifact.id}:"
+                f"comment:{comment_id}"
+            ),
             entity_id=entity_id,
             event_type=EventType.COMMENT_ADDED,
             timestamp=timestamp,
@@ -231,6 +269,13 @@ class EventExtractor:
             },
             created_at=timestamp,
         )
+
+
+# ---------------------------------------------------------------------------
+# Evidence Extraction
+# ---------------------------------------------------------------------------
+
+
 class EvidenceExtractor:
     """Extracts deterministic evidence from canonical artifacts."""
 
@@ -264,12 +309,21 @@ class EvidenceExtractor:
         if isinstance(status, str):
             evidence.append(
                 Evidence(
-                    id=f"evidence:{artifact.id}:status",
-                    entity_ids=[primary_entity_id],
+                    id=(
+                        f"evidence:"
+                        f"{artifact.id}:status"
+                    ),
+                    entity_ids=[
+                        primary_entity_id
+                    ],
                     source=artifact.source,
                     source_id=artifact.source_id,
-                    evidence_type=EvidenceType.STATUS_UPDATE,
-                    claim=f"Ticket status is {status}",
+                    evidence_type=(
+                        EvidenceType.STATUS_UPDATE
+                    ),
+                    claim=(
+                        f"Ticket status is {status}"
+                    ),
                     content=status,
                     timestamp=artifact.updated_at,
                     location=EvidenceLocation(
@@ -279,7 +333,10 @@ class EvidenceExtractor:
                 )
             )
 
-        comments = artifact.content.get("comments", [])
+        comments = artifact.content.get(
+            "comments",
+            [],
+        )
 
         if not isinstance(comments, list):
             return evidence
@@ -288,14 +345,18 @@ class EvidenceExtractor:
             if not isinstance(comment, dict):
                 continue
 
-            comment_evidence = self._create_comment_evidence(
-                artifact=artifact,
-                entity_id=primary_entity_id,
-                comment=comment,
+            comment_evidence = (
+                self._create_comment_evidence(
+                    artifact=artifact,
+                    entity_id=primary_entity_id,
+                    comment=comment,
+                )
             )
 
             if comment_evidence is not None:
-                evidence.append(comment_evidence)
+                evidence.append(
+                    comment_evidence
+                )
 
         return evidence
 
@@ -319,23 +380,290 @@ class EvidenceExtractor:
             return None
 
         timestamp = datetime.fromisoformat(
-            created.replace("Z", "+00:00")
+            created.replace(
+                "Z",
+                "+00:00",
+            )
         )
 
         return Evidence(
-                id=f"evidence:{artifact.id}:comment:{comment_id}",
-                entity_ids=[entity_id],
-                source=artifact.source,
-                source_id=comment_id,
-                evidence_type=EvidenceType.COMMENT,
-                claim=body,
-                content=body,
-                timestamp=timestamp,
-                location=EvidenceLocation(
-                    artifact_id=artifact.id,
+            id=(
+                f"evidence:{artifact.id}:"
+                f"comment:{comment_id}"
+            ),
+            entity_ids=[entity_id],
+            source=artifact.source,
+            source_id=comment_id,
+            evidence_type=EvidenceType.COMMENT,
+            claim=body,
+            content=body,
+            timestamp=timestamp,
+            location=EvidenceLocation(
+                artifact_id=artifact.id,
+            ),
+            metadata={
+                "author": comment.get("author"),
+            },
+            created_at=timestamp,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Relationship Extraction
+# ---------------------------------------------------------------------------
+
+
+class ExtractedRelationship(BaseModel):
+    """Single relationship proposed by semantic extraction."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    source_mention: str
+    target_mention: str
+    relationship_type: RelationshipType
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+    evidence_text: str
+
+
+class RelationshipExtractionOutput(BaseModel):
+    """Structured relationship output expected from the LLM."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    relationships: list[
+        ExtractedRelationship
+    ] = Field(
+        default_factory=list
+    )
+
+
+class RelationshipCandidate(BaseModel):
+    """Potential relationship awaiting canonical entity validation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    source_entity_id: str
+    target_mention: str
+    relationship_type: RelationshipType
+    confidence: float = Field(
+        ge=0.0,
+        le=1.0,
+    )
+    evidence_text: str
+
+
+class RelationshipExtractionResult(BaseModel):
+    """Result of semantic relationship extraction."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+    )
+
+    candidates: list[
+        RelationshipCandidate
+    ] = Field(
+        default_factory=list
+    )
+
+    relationships: list[
+        Relationship
+    ] = Field(
+        default_factory=list
+    )
+
+
+class RelationshipExtractor:
+    """Extracts semantic relationships with LLM assistance."""
+
+    def __init__(
+        self,
+        llm_gateway: LLMGateway,
+    ) -> None:
+        self._llm_gateway = llm_gateway
+
+    def extract(
+        self,
+        *,
+        artifact: CanonicalArtifact,
+        primary_entity: Entity,
+        resolutions: list[
+            EntityResolutionResult
+        ],
+    ) -> RelationshipExtractionResult:
+        output = (
+            self._llm_gateway.generate_structured(
+                system_prompt=self._system_prompt(),
+                user_prompt=self._build_user_prompt(
+                    artifact=artifact,
+                    primary_entity=primary_entity,
                 ),
-                metadata={
-                    "author": comment.get("author"),
-                },
-                created_at=timestamp,
+                output_model=(
+                    RelationshipExtractionOutput
+                ),
             )
+        )
+
+        candidates: list[
+            RelationshipCandidate
+        ] = []
+
+        relationships: list[
+            Relationship
+        ] = []
+
+        for extracted in output.relationships:
+            candidate = RelationshipCandidate(
+                source_entity_id=primary_entity.id,
+                target_mention=(
+                    extracted.target_mention
+                ),
+                relationship_type=(
+                    extracted.relationship_type
+                ),
+                confidence=extracted.confidence,
+                evidence_text=(
+                    extracted.evidence_text
+                ),
+            )
+
+            candidates.append(candidate)
+
+            target_entity_id = (
+                self._find_resolved_entity_id(
+                    mention=(
+                        extracted.target_mention
+                    ),
+                    resolutions=resolutions,
+                )
+            )
+
+            if target_entity_id is None:
+                continue
+
+            relationships.append(
+                Relationship(
+                    id=(
+                        f"relationship:"
+                        f"{primary_entity.id}:"
+                        f"{extracted.relationship_type.value}:"
+                        f"{target_entity_id}"
+                    ),
+                    source_entity_id=(
+                        primary_entity.id
+                    ),
+                    relationship_type=(
+                        extracted.relationship_type
+                    ),
+                    target_entity_id=(
+                        target_entity_id
+                    ),
+                    confidence=(
+                        extracted.confidence
+                    ),
+                    provenance={
+                        "artifact_id": artifact.id,
+                        "method": (
+                            "llm_semantic_extraction"
+                        ),
+                        "evidence_text": (
+                            extracted.evidence_text
+                        ),
+                    },
+                    observed_at=artifact.updated_at,
+                    created_at=artifact.updated_at,
+                )
+            )
+
+        return RelationshipExtractionResult(
+            candidates=candidates,
+            relationships=relationships,
+        )
+
+    @staticmethod
+    def _find_resolved_entity_id(
+        *,
+        mention: str,
+        resolutions: list[
+            EntityResolutionResult
+        ],
+    ) -> str | None:
+        normalized_mention = (
+            mention.strip().lower()
+        )
+
+        for resolution in resolutions:
+            if (
+                resolution.status
+                != EntityResolutionStatus.RESOLVED
+            ):
+                continue
+
+            if resolution.entity_id is None:
+                continue
+
+            if (
+                resolution.mention
+                .strip()
+                .lower()
+                == normalized_mention
+            ):
+                return resolution.entity_id
+
+        return None
+
+    @staticmethod
+    def _system_prompt() -> str:
+        return """
+You extract relationships between enterprise artifacts.
+
+Use only information explicitly supported by the provided artifact.
+
+Allowed relationship types:
+- belongs_to
+- discussed_in
+- implemented_by
+- related_to
+- references
+- mentions
+
+Do not invent entities or relationships.
+
+The source entity is already known.
+Extract relationships from the source entity to other entities
+explicitly mentioned in the artifact.
+
+Use implemented_by only when the text indicates that another
+artifact contains or implements the fix/change.
+
+Return no relationship when the evidence is insufficient.
+""".strip()
+
+    @staticmethod
+    def _build_user_prompt(
+        *,
+        artifact: CanonicalArtifact,
+        primary_entity: Entity,
+    ) -> str:
+        return (
+            f"Source entity: "
+            f"{primary_entity.id}\n"
+            f"Source entity name: "
+            f"{primary_entity.name}\n"
+            f"Artifact title: "
+            f"{artifact.title}\n"
+            f"Artifact content:\n"
+            f"{artifact.content}"
+        )
