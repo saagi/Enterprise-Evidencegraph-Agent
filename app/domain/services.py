@@ -3,7 +3,17 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.domain.interfaces import EntityRepository
-from app.domain.models import Entity, EntityType, Source
+from app.domain.models import (
+    CanonicalArtifact,
+    Entity,
+    EntityType,
+    Event,
+    EventType,
+    Source,
+)
+
+from datetime import datetime
+from typing import Any
 
 
 class EntityResolutionStatus(StrEnum):
@@ -111,4 +121,110 @@ class EntityResolver:
             confidence=0.0,
             method=None,
             candidate_ids=[],
+        )
+
+
+
+class EventExtractor:
+    """Extracts deterministic events from canonical artifacts."""
+
+    def extract(
+        self,
+        artifact: CanonicalArtifact,
+        entity_ids: list[str],
+    ) -> list[Event]:
+        if artifact.source == Source.JIRA:
+            return self._extract_jira_events(
+                artifact=artifact,
+                entity_ids=entity_ids,
+            )
+
+        return []
+
+    def _extract_jira_events(
+        self,
+        artifact: CanonicalArtifact,
+        entity_ids: list[str],
+    ) -> list[Event]:
+        if not entity_ids:
+            return []
+
+        primary_entity_id = entity_ids[0]
+
+        events = [
+            Event(
+                id=f"event:{artifact.id}:created",
+                entity_id=primary_entity_id,
+                event_type=EventType.CREATED,
+                timestamp=artifact.created_at,
+                source=artifact.source,
+                source_id=artifact.source_id,
+                data={},
+                created_at=artifact.created_at,
+            ),
+            Event(
+                id=f"event:{artifact.id}:updated",
+                entity_id=primary_entity_id,
+                event_type=EventType.UPDATED,
+                timestamp=artifact.updated_at,
+                source=artifact.source,
+                source_id=artifact.source_id,
+                data={
+                    "status": artifact.content.get("status"),
+                },
+                created_at=artifact.updated_at,
+            ),
+        ]
+
+        comments = artifact.content.get("comments", [])
+
+        if not isinstance(comments, list):
+            return events
+
+        for comment in comments:
+            if not isinstance(comment, dict):
+                continue
+
+            event = self._create_comment_event(
+                artifact=artifact,
+                entity_id=primary_entity_id,
+                comment=comment,
+            )
+
+            if event is not None:
+                events.append(event)
+
+        return events
+
+    @staticmethod
+    def _create_comment_event(
+        artifact: CanonicalArtifact,
+        entity_id: str,
+        comment: dict[str, Any],
+    ) -> Event | None:
+        comment_id = comment.get("id")
+        created = comment.get("created")
+
+        if not isinstance(comment_id, str):
+            return None
+
+        if not isinstance(created, str):
+            return None
+
+        timestamp = datetime.fromisoformat(
+            created.replace("Z", "+00:00")
+        )
+
+        return Event(
+            id=f"event:{artifact.id}:comment:{comment_id}",
+            entity_id=entity_id,
+            event_type=EventType.COMMENT_ADDED,
+            timestamp=timestamp,
+            source=artifact.source,
+            source_id=comment_id,
+            data={
+                "body": comment.get("body"),
+                "author": comment.get("author"),
+            },
+            created_at=timestamp,
         )

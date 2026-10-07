@@ -1,11 +1,12 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.models import CanonicalArtifact, Entity, Event
 from app.domain.entity_registry import EntityIdentificationRegistry
-from app.domain.models import CanonicalArtifact, Entity
 from app.domain.services import (
     EntityResolutionResult,
     EntityResolutionStatus,
     EntityResolver,
+    EventExtractor,
 )
 
 
@@ -15,23 +16,25 @@ class ProcessingResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     artifact_id: str
-
     entities: list[Entity] = Field(default_factory=list)
     entity_resolutions: list[EntityResolutionResult] = Field(
         default_factory=list
     )
+    events: list[Event] = Field(default_factory=list)
 
 
 class ArtifactProcessor:
     """Processes canonical artifacts into domain-level information."""
 
     def __init__(
-        self,
-        entity_registry: EntityIdentificationRegistry,
-        entity_resolver: EntityResolver,
-    ) -> None:
+    self,
+    entity_registry: EntityIdentificationRegistry,
+    entity_resolver: EntityResolver,
+    event_extractor: EventExtractor,
+) -> None:
         self._entity_registry = entity_registry
         self._entity_resolver = entity_resolver
+        self._event_extractor = event_extractor
 
     def process(self, artifact: CanonicalArtifact) -> ProcessingResult:
         text = self._extract_searchable_text(artifact)
@@ -49,10 +52,19 @@ class ArtifactProcessor:
 
         entities = self._get_resolved_entities(resolutions)
 
+        events = self._event_extractor.extract(
+            artifact=artifact,
+            entity_ids=[
+                entity.id
+                for entity in entities
+            ],
+        )
+
         return ProcessingResult(
             artifact_id=artifact.id,
             entities=entities,
             entity_resolutions=resolutions,
+            events=events,
         )
 
     def _get_resolved_entities(
