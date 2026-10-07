@@ -9,6 +9,9 @@ from app.domain.models import (
     EntityType,
     Event,
     EventType,
+    Evidence,
+    EvidenceLocation,
+    EvidenceType,
     Source,
 )
 
@@ -228,3 +231,111 @@ class EventExtractor:
             },
             created_at=timestamp,
         )
+class EvidenceExtractor:
+    """Extracts deterministic evidence from canonical artifacts."""
+
+    def extract(
+        self,
+        artifact: CanonicalArtifact,
+        entity_ids: list[str],
+    ) -> list[Evidence]:
+        if artifact.source == Source.JIRA:
+            return self._extract_jira_evidence(
+                artifact=artifact,
+                entity_ids=entity_ids,
+            )
+
+        return []
+
+    def _extract_jira_evidence(
+        self,
+        artifact: CanonicalArtifact,
+        entity_ids: list[str],
+    ) -> list[Evidence]:
+        if not entity_ids:
+            return []
+
+        primary_entity_id = entity_ids[0]
+
+        evidence: list[Evidence] = []
+
+        status = artifact.content.get("status")
+
+        if isinstance(status, str):
+            evidence.append(
+                Evidence(
+                    id=f"evidence:{artifact.id}:status",
+                    entity_ids=[primary_entity_id],
+                    source=artifact.source,
+                    source_id=artifact.source_id,
+                    evidence_type=EvidenceType.STATUS_UPDATE,
+                    claim=f"Ticket status is {status}",
+                    content=status,
+                    timestamp=artifact.updated_at,
+                    location=EvidenceLocation(
+                        artifact_id=artifact.id,
+                    ),
+                    created_at=artifact.updated_at,
+                )
+            )
+
+        comments = artifact.content.get("comments", [])
+
+        if not isinstance(comments, list):
+            return evidence
+
+        for comment in comments:
+            if not isinstance(comment, dict):
+                continue
+
+            comment_evidence = self._create_comment_evidence(
+                artifact=artifact,
+                entity_id=primary_entity_id,
+                comment=comment,
+            )
+
+            if comment_evidence is not None:
+                evidence.append(comment_evidence)
+
+        return evidence
+
+    @staticmethod
+    def _create_comment_evidence(
+        artifact: CanonicalArtifact,
+        entity_id: str,
+        comment: dict[str, Any],
+    ) -> Evidence | None:
+        comment_id = comment.get("id")
+        body = comment.get("body")
+        created = comment.get("created")
+
+        if not isinstance(comment_id, str):
+            return None
+
+        if not isinstance(body, str):
+            return None
+
+        if not isinstance(created, str):
+            return None
+
+        timestamp = datetime.fromisoformat(
+            created.replace("Z", "+00:00")
+        )
+
+        return Evidence(
+                id=f"evidence:{artifact.id}:comment:{comment_id}",
+                entity_ids=[entity_id],
+                source=artifact.source,
+                source_id=comment_id,
+                evidence_type=EvidenceType.COMMENT,
+                claim=body,
+                content=body,
+                timestamp=timestamp,
+                location=EvidenceLocation(
+                    artifact_id=artifact.id,
+                ),
+                metadata={
+                    "author": comment.get("author"),
+                },
+                created_at=timestamp,
+            )

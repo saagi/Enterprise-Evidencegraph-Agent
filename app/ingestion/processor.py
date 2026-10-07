@@ -1,12 +1,19 @@
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.models import CanonicalArtifact, Entity, Event
+from app.domain.models import (
+    CanonicalArtifact,
+    Entity,
+    Event,
+    Evidence,
+)
 from app.domain.entity_registry import EntityIdentificationRegistry
+
 from app.domain.services import (
     EntityResolutionResult,
     EntityResolutionStatus,
     EntityResolver,
     EventExtractor,
+    EvidenceExtractor,
 )
 
 
@@ -21,6 +28,7 @@ class ProcessingResult(BaseModel):
         default_factory=list
     )
     events: list[Event] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
 
 
 class ArtifactProcessor:
@@ -31,10 +39,12 @@ class ArtifactProcessor:
     entity_registry: EntityIdentificationRegistry,
     entity_resolver: EntityResolver,
     event_extractor: EventExtractor,
+    evidence_extractor: EvidenceExtractor,
 ) -> None:
         self._entity_registry = entity_registry
         self._entity_resolver = entity_resolver
         self._event_extractor = event_extractor
+        self._evidence_extractor = evidence_extractor
 
     def process(self, artifact: CanonicalArtifact) -> ProcessingResult:
         text = self._extract_searchable_text(artifact)
@@ -60,11 +70,20 @@ class ArtifactProcessor:
             ],
         )
 
+        evidence = self._evidence_extractor.extract(
+            artifact=artifact,
+            entity_ids=[
+                entity.id
+                for entity in entities
+            ],
+        )
+
         return ProcessingResult(
             artifact_id=artifact.id,
             entities=entities,
             entity_resolutions=resolutions,
             events=events,
+            evidence=evidence,
         )
 
     def _get_resolved_entities(

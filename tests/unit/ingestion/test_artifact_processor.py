@@ -12,7 +12,9 @@ from app.domain.services import (
     EntityResolutionStatus,
     EntityResolver,
     EventExtractor,
+    EvidenceExtractor,
 )
+
 from app.ingestion.processor import ArtifactProcessor
 
 
@@ -94,6 +96,7 @@ def make_processor(
         entity_registry=create_default_entity_registry(),
         entity_resolver=EntityResolver(repository),
         event_extractor=EventExtractor(),
+        evidence_extractor=EvidenceExtractor(),
     )
 
 
@@ -141,6 +144,8 @@ def test_processor_identifies_resolved_and_unresolved_entities() -> None:
     # The resolved Jira entity allows deterministic event extraction.
     assert len(result.events) == 4
 
+    assert len(result.evidence) == 3
+
     assert [
         event.event_type
         for event in result.events
@@ -183,3 +188,4 @@ def test_processor_keeps_unresolved_references() -> None:
 
     # Events require a canonical entity to attach to.
     assert result.events == []
+    assert result.evidence == []
