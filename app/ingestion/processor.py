@@ -5,6 +5,7 @@ from app.domain.models import (
     Entity,
     Event,
     Evidence,
+    Relationship
 )
 from app.domain.entity_registry import EntityIdentificationRegistry
 
@@ -14,7 +15,11 @@ from app.domain.services import (
     EntityResolver,
     EventExtractor,
     EvidenceExtractor,
+    RelationshipCandidate,
+    RelationshipExtractor,
 )
+
+
 
 
 class ProcessingResult(BaseModel):
@@ -30,6 +35,13 @@ class ProcessingResult(BaseModel):
     events: list[Event] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
 
+    relationship_candidates: list[RelationshipCandidate] = Field(
+    default_factory=list
+    )
+    relationships: list[Relationship] = Field(
+        default_factory=list
+    )
+
 
 class ArtifactProcessor:
     """Processes canonical artifacts into domain-level information."""
@@ -40,11 +52,13 @@ class ArtifactProcessor:
     entity_resolver: EntityResolver,
     event_extractor: EventExtractor,
     evidence_extractor: EvidenceExtractor,
+    relationship_extractor: RelationshipExtractor | None = None,
 ) -> None:
         self._entity_registry = entity_registry
         self._entity_resolver = entity_resolver
         self._event_extractor = event_extractor
         self._evidence_extractor = evidence_extractor
+        self._relationship_extractor = relationship_extractor
 
     def process(self, artifact: CanonicalArtifact) -> ProcessingResult:
         text = self._extract_searchable_text(artifact)
@@ -62,6 +76,10 @@ class ArtifactProcessor:
 
         entities = self._get_resolved_entities(resolutions)
 
+        primary_entity = self._entity_resolver.get_entity(
+            f"{artifact.source.value}:{artifact.source_id}"
+        )
+
         events = self._event_extractor.extract(
             artifact=artifact,
             entity_ids=[
@@ -78,12 +96,27 @@ class ArtifactProcessor:
             ],
         )
 
+        relationship_candidates: list[RelationshipCandidate] = []
+        relationships: list[Relationship] = []
+
+        if self._relationship_extractor is not None and primary_entity is not None:
+            relationship_result = self._relationship_extractor.extract(
+                artifact=artifact,
+                primary_entity=primary_entity,
+                resolutions=resolutions,
+            )
+
+            relationship_candidates = relationship_result.candidates
+            relationships = relationship_result.relationships
+
         return ProcessingResult(
             artifact_id=artifact.id,
             entities=entities,
             entity_resolutions=resolutions,
             events=events,
             evidence=evidence,
+            relationship_candidates=relationship_candidates,
+            relationships=relationships,
         )
 
     def _get_resolved_entities(
