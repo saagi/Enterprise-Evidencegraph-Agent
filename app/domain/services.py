@@ -159,12 +159,29 @@ class EventExtractor:
     """Extracts deterministic events from canonical artifacts."""
 
     def extract(
-        self,
-        artifact: CanonicalArtifact,
-        entity_ids: list[str],
-    ) -> list[Event]:
+    self,
+    artifact: CanonicalArtifact,
+    entity_ids: list[str],
+    primary_entity_id: str | None = None,
+) -> list[Event]:
+
+        if primary_entity_id is not None:
+            entity_ids = [
+                primary_entity_id,
+                *(
+                    entity_id
+                    for entity_id in entity_ids
+                    if entity_id != primary_entity_id
+                ),
+            ]
         if artifact.source == Source.JIRA:
             return self._extract_jira_events(
+                artifact=artifact,
+                entity_ids=entity_ids,
+            )
+
+        if artifact.source == Source.GITHUB:
+            return self._extract_github_events(
                 artifact=artifact,
                 entity_ids=entity_ids,
             )
@@ -270,6 +287,86 @@ class EventExtractor:
             created_at=timestamp,
         )
 
+    
+    def _extract_github_events(
+        self,
+        artifact: CanonicalArtifact,
+        entity_ids: list[str],
+    ) -> list[Event]:
+        if not entity_ids:
+            return []
+
+        primary_entity_id = entity_ids[0]
+
+        events = [
+            Event(
+                id=f"event:{artifact.id}:created",
+                entity_id=primary_entity_id,
+                event_type=EventType.CREATED,
+                timestamp=artifact.created_at,
+                source=Source.GITHUB,
+                source_id=artifact.source_id,
+                data={},
+                created_at=artifact.created_at,
+            )
+        ]
+
+        closed_at = self._parse_optional_timestamp(
+            artifact.content.get("closed_at")
+        )
+
+        merged_at = self._parse_optional_timestamp(
+            artifact.content.get("merged_at")
+        )
+
+        if closed_at is not None:
+            events.append(
+                Event(
+                    id=f"event:{artifact.id}:closed",
+                    entity_id=primary_entity_id,
+                    event_type=EventType.CLOSED,
+                    timestamp=closed_at,
+                    source=Source.GITHUB,
+                    source_id=artifact.source_id,
+                    data={
+                        "state": artifact.content.get("state"),
+                    },
+                    created_at=closed_at,
+                )
+            )
+
+        if merged_at is not None:
+            events.append(
+                Event(
+                    id=f"event:{artifact.id}:merged",
+                    entity_id=primary_entity_id,
+                    event_type=EventType.MERGED,
+                    timestamp=merged_at,
+                    source=Source.GITHUB,
+                    source_id=artifact.source_id,
+                    data={
+                        "merged": artifact.content.get("merged"),
+                        "base_branch": artifact.content.get("base_branch"),
+                        "head_branch": artifact.content.get("head_branch"),
+                    },
+                    created_at=merged_at,
+                )
+            )
+
+        return events
+
+    @staticmethod
+    def _parse_optional_timestamp(
+        value: object,
+    ) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+
+        return datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+
+
 
 # ---------------------------------------------------------------------------
 # Evidence Extraction
@@ -280,12 +377,29 @@ class EvidenceExtractor:
     """Extracts deterministic evidence from canonical artifacts."""
 
     def extract(
-        self,
-        artifact: CanonicalArtifact,
-        entity_ids: list[str],
+    self,
+    artifact: CanonicalArtifact,
+    entity_ids: list[str],
+    primary_entity_id: str | None = None,
     ) -> list[Evidence]:
+
+        if primary_entity_id is not None:
+            entity_ids = [
+                primary_entity_id,
+                *(
+                    entity_id
+                    for entity_id in entity_ids
+                    if entity_id != primary_entity_id
+                ),
+            ]
         if artifact.source == Source.JIRA:
             return self._extract_jira_evidence(
+                artifact=artifact,
+                entity_ids=entity_ids,
+            )
+
+        if artifact.source == Source.GITHUB:
+            return self._extract_github_evidence(
                 artifact=artifact,
                 entity_ids=entity_ids,
             )
@@ -406,6 +520,80 @@ class EvidenceExtractor:
             },
             created_at=timestamp,
         )
+
+    
+    def _extract_github_evidence(
+        self,
+        artifact: CanonicalArtifact,
+        entity_ids: list[str],
+    ) -> list[Evidence]:
+        if not entity_ids:
+            return []
+
+        primary_entity_id = entity_ids[0]
+        evidence: list[Evidence] = []
+
+        merged = artifact.content.get("merged")
+        merged_at = artifact.content.get("merged_at")
+        state = artifact.content.get("state")
+
+        location = EvidenceLocation(
+            artifact_id=artifact.id,
+            url=artifact.metadata.get("url"),
+        )
+
+        # Structured evidence of a completed PR merge.
+        if merged is True and isinstance(merged_at, str):
+            timestamp = datetime.fromisoformat(
+                merged_at.replace("Z", "+00:00")
+            )
+
+            evidence.append(
+                Evidence(
+                    id=f"evidence:{artifact.id}:merged",
+                    entity_ids=[primary_entity_id],
+                    source=Source.GITHUB,
+                    source_id=artifact.source_id,
+                    evidence_type=EvidenceType.PR_CHANGE,
+                    claim="Pull request was merged",
+                    content=(
+                        f"PR merged at {merged_at}; "
+                        f"state={state}"
+                    ),
+                    timestamp=timestamp,
+                    location=location,
+                    metadata={
+                        "merged": True,
+                        "state": state,
+                    },
+                    created_at=timestamp,
+                )
+            )
+
+        # Preserve the PR description as source evidence.
+        body = artifact.content.get("body")
+
+        if isinstance(body, str) and body.strip():
+            evidence.append(
+                Evidence(
+                    id=f"evidence:{artifact.id}:description",
+                    entity_ids=[primary_entity_id],
+                    source=Source.GITHUB,
+                    source_id=artifact.source_id,
+                    evidence_type=EvidenceType.DOCUMENTATION,
+                    claim=body,
+                    content=body,
+                    timestamp=artifact.created_at,
+                    location=location,
+                    metadata={
+                        "field": "body",
+                    },
+                    created_at=artifact.created_at,
+                )
+            )
+
+        return evidence
+
 
 
 # ---------------------------------------------------------------------------

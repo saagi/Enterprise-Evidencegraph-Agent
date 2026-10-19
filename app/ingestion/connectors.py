@@ -69,3 +69,59 @@ class JiraConnector:
             created_at=created_at,
             updated_at=updated_at,
         )
+
+
+class GitHubPRConnector:
+    """Normalizes GitHub pull requests into canonical artifacts."""
+
+    def normalize(self, record: SourceRecord) -> CanonicalArtifact:
+        if record.source != Source.GITHUB:
+            raise ValueError(
+                f"GitHubPRConnector cannot normalize source: {record.source}"
+            )
+
+        payload = record.payload
+
+        repository = payload["base"]["repo"]["full_name"]
+        pr_number = payload["number"]
+
+        source_id = f"{repository}:pr:{pr_number}"
+
+        created_at = datetime.fromisoformat(
+            payload["created_at"].replace("Z", "+00:00")
+        )
+
+        updated_at = datetime.fromisoformat(
+            payload["updated_at"].replace("Z", "+00:00")
+        )
+
+        content = {
+            "number": pr_number,
+            "title": payload["title"],
+            "body": payload.get("body"),
+            "state": payload["state"],
+            "merged": payload.get("merged"),
+            "merged_at": payload.get("merged_at"),
+            "closed_at": payload.get("closed_at"),
+            "base_branch": payload["base"]["ref"],
+            "head_branch": payload["head"]["ref"],
+        }
+
+        metadata = {
+            "repository": repository,
+            "url": payload.get("html_url"),
+            "author": payload.get("user", {}).get("login"),
+            **record.metadata,
+        }
+
+        return CanonicalArtifact(
+            id=f"artifact:github:{source_id}",
+            source=Source.GITHUB,
+            source_id=source_id,
+            artifact_type="github_pr",
+            title=payload["title"],
+            content=content,
+            metadata=metadata,
+            created_at=created_at,
+            updated_at=updated_at,
+        )

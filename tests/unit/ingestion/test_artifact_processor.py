@@ -333,3 +333,103 @@ def test_processor_skips_relationship_extraction_without_resolved_entities() -> 
     assert fake_extractor.call_count == 0
     assert result.relationship_candidates == []
     assert result.relationships == []
+
+
+
+def test_github_events_and_evidence_belong_to_pr() -> None:
+    pr_id = "github:acme/payments-api:pr:829"
+    jira_id = "jira:PAY-1842"
+
+    now = datetime(2026, 9, 21, 16, 45, tzinfo=UTC)
+
+    pr_entity = Entity(
+        id=pr_id,
+        type=EntityType.GITHUB_PR,
+        name="Fix payment failures after token refresh",
+        source=Source.GITHUB,
+        source_id="acme/payments-api:pr:829",
+        created_at=now,
+        updated_at=now,
+    )
+
+    repository = FakeEntityRepository(
+        entities={
+            jira_id: make_jira_entity(),
+            pr_id: pr_entity,
+        }
+    )
+
+    artifact = CanonicalArtifact(
+        id="artifact:github:acme/payments-api:pr:829",
+        source=Source.GITHUB,
+        source_id="acme/payments-api:pr:829",
+        artifact_type="github_pr",
+        title="Fix payment failures",
+        content={
+            "body": "Fixes PAY-1842.",
+            "state": "closed",
+            "merged": True,
+            "merged_at": "2026-09-21T16:45:00Z",
+            "closed_at": "2026-09-21T16:45:00Z",
+            "base_branch": "main",
+            "head_branch": "fix/payment-token-refresh",
+        },
+        metadata={
+            "url": "https://github.com/acme/payments-api/pull/829",
+        },
+        created_at=datetime(2026, 9, 19, 10, 30, tzinfo=UTC),
+        updated_at=now,
+    )
+
+    processor = make_processor(repository)
+    result = processor.process(artifact)
+
+    assert jira_id in [entity.id for entity in result.entities]
+    assert pr_id in [entity.id for entity in result.entities]
+
+    assert len(result.events) == 3
+    assert len(result.evidence) == 2
+
+    assert all(
+        event.entity_id == pr_id
+        for event in result.events
+    )
+
+    assert all(
+        evidence.entity_ids == [pr_id]
+        for evidence in result.evidence
+    )
+
+
+def test_missing_primary_entity_does_not_misattribute_github_events() -> None:
+    jira_entity = make_jira_entity()
+
+    repository = FakeEntityRepository(
+        entities={jira_entity.id: jira_entity}
+    )
+
+    artifact = CanonicalArtifact(
+        id="artifact:github:acme/payments-api:pr:829",
+        source=Source.GITHUB,
+        source_id="acme/payments-api:pr:829",
+        artifact_type="github_pr",
+        title="Fix PAY-1842",
+        content={
+            "body": "Fixes PAY-1842.",
+            "merged": True,
+            "merged_at": "2026-09-21T16:45:00Z",
+            "closed_at": "2026-09-21T16:45:00Z",
+        },
+        created_at=datetime(2026, 9, 19, tzinfo=UTC),
+        updated_at=datetime(2026, 9, 21, tzinfo=UTC),
+    )
+
+    result = make_processor(repository).process(artifact)
+
+    assert [entity.id for entity in result.entities] == [
+        "jira:PAY-1842"
+    ]
+
+    assert result.events == []
+    assert result.evidence == []
+    assert result.relationships == []

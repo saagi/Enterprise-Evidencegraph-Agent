@@ -1,0 +1,26 @@
+
+{
+  "id": 184829,
+  "number": 829,
+  "title": "Fix payment failures after authentication token refresh",
+  "body": "Fixes PAY-1842. Updates payment request handling to retry safely after authentication token refresh.",
+  "state": "closed",
+  "merged": true,
+  "merged_at": "2026-09-21T16:45:00Z",
+  "closed_at": "2026-09-21T16:45:00Z",
+  "created_at": "2026-09-19T10:30:00Z",
+  "updated_at": "2026-09-21T16:45:00Z",
+  "html_url": "https://github.com/acme/payments-api/pull/829",
+  "user": {
+    "login": "alice-chen"
+  },
+  "base": {
+    "ref": "main",
+    "repo": {
+      "full_name": "acme/payments-api"
+    }
+  },
+  "head": {
+    "ref": "fix/payment-token-refresh"
+  }
+}

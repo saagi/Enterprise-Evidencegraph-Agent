@@ -1,6 +1,8 @@
 pydantic<3.0,>=2.9
 pydantic-settings<3.0,>=2.5
 openai<3.0,>=2.0
+sqlalchemy<3.0,>=2.0
+psycopg[binary]<4.0,>=3.2
 
 [dev]
 pytest<9.0,>=8.3
