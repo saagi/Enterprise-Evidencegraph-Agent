@@ -89,6 +89,12 @@ class PostgresEntityRepository:
     def __init__(self, database: PostgresDatabase) -> None:
         self._database = database
 
+    def get(self, entity_id: str) -> Entity | None:
+        return self.get_entity(entity_id)
+
+    def save(self, entity: Entity) -> None:
+        self.upsert(entity)
+
     def upsert(self, entity: Entity) -> None:
         values = _serialize(entity)
         values["metadata_"] = values.pop("metadata")

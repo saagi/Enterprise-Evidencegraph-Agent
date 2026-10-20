@@ -34,7 +34,7 @@ from app.storage.schema import (
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+psycopg://evidencegraph:evidencegraph@localhost:5432/evidencegraph",
+    "postgresql+psycopg://evidencegraph:evidencegraph@127.0.0.1:5432/evidencegraph",
 )
 
 

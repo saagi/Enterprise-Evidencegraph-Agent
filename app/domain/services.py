@@ -104,9 +104,7 @@ class EntityResolver:
         if candidate.normalized_id is None:
             return self._unresolved(candidate)
 
-        entity = self._entity_repository.get(
-            candidate.normalized_id
-        )
+        entity = self._entity_repository.get(candidate.normalized_id)
 
         if entity is not None:
             return self._resolved(

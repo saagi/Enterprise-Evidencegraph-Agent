@@ -8,58 +8,68 @@ from app.domain.models import (
     EntityType,
     Source,
 )
-from app.ingestion.connectors import (
-    SourceConnector,
-    SourceRecord,
-)
-from app.ingestion.processor import (
-    ArtifactProcessor,
-    ProcessingResult,
-)
+from app.ingestion.connectors import SourceConnector, SourceRecord
+from app.ingestion.processor import ArtifactProcessor, ProcessingResult
 
 
-class EntityWriter(Protocol):
-    """Write capability required by ingestion."""
+class IngestionPersistence(Protocol):
+    """Persists an ingestion result atomically."""
 
-    def upsert(self, entity: Entity) -> None:
+    def persist(
+        self,
+        artifact: CanonicalArtifact,
+        result: ProcessingResult,
+    ) -> None:
         ...
 
 
 class IngestionOrchestrator:
-    """Normalize records and process them with a verified primary entity."""
+    """
+    Coordinates ingestion from a source connector.
+
+    Flow:
+        1. Normalize the source record.
+        2. Build the primary entity in memory.
+        3. Process the artifact without writing to PostgreSQL.
+        4. Persist the complete result in one transaction.
+    """
 
     def __init__(
         self,
         connector: SourceConnector,
         entity_repository: EntityRepository,
-        entity_writer: EntityWriter,
         processor: ArtifactProcessor,
+        persistence: IngestionPersistence,
     ) -> None:
         self._connector = connector
         self._entity_repository = entity_repository
-        self._entity_writer = entity_writer
         self._processor = processor
+        self._persistence = persistence
 
     def ingest(self, record: SourceRecord) -> ProcessingResult:
         artifact = self._connector.normalize(record)
 
         primary_entity = self._build_primary_entity(artifact)
 
-        # Upsert before processing so the resolver can find
-        # the artifact's primary entity.
-        self._entity_writer.upsert(primary_entity)
+        result = self._processor.process(
+            artifact,
+            primary_entity=primary_entity,
+        )
 
-        return self._processor.process(artifact)
+        self._persistence.persist(
+            artifact,
+            result,
+        )
+
+        return result
 
     def _build_primary_entity(
         self,
         artifact: CanonicalArtifact,
     ) -> Entity:
-        entity_id = (
-            f"{artifact.source.value}:{artifact.source_id}"
-        )
+        entity_id = f"{artifact.source.value}:{artifact.source_id}"
 
-        existing = self._entity_repository.get_entity(entity_id)
+        existing = self._entity_repository.get(entity_id)
 
         entity_type = self._get_entity_type(artifact.source)
 
@@ -69,6 +79,12 @@ class IngestionOrchestrator:
             else artifact.created_at
         )
 
+        metadata = {
+            **(existing.metadata if existing is not None else {}),
+            **artifact.metadata,
+            "artifact_id": artifact.id,
+        }
+
         return Entity(
             id=entity_id,
             type=entity_type,
@@ -77,11 +93,7 @@ class IngestionOrchestrator:
             source_id=artifact.source_id,
             created_at=created_at,
             updated_at=artifact.updated_at,
-            metadata={
-                **(existing.metadata if existing is not None else {}),
-                **artifact.metadata,
-                "artifact_id": artifact.id,
-            },
+            metadata=metadata,
         )
 
     @staticmethod
@@ -93,5 +105,5 @@ class IngestionOrchestrator:
             return EntityType.GITHUB_PR
 
         raise ValueError(
-            f"Unsupported source for V1 ingestion: {source}"
+            f"Unsupported source for primary entity: {source.value}"
         )

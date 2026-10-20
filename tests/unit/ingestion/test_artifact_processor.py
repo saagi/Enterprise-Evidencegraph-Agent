@@ -2,6 +2,8 @@
 from datetime import UTC, datetime
 from typing import Protocol
 
+import pytest
+
 from app.domain.entity_registry import create_default_entity_registry
 from app.domain.models import (
     CanonicalArtifact,
@@ -433,3 +435,52 @@ def test_missing_primary_entity_does_not_misattribute_github_events() -> None:
     assert result.events == []
     assert result.evidence == []
     assert result.relationships == []
+
+
+# ---------------------------------------------------------------------------
+# In-memory primary entity processing (atomic ingestion preparation)
+# ---------------------------------------------------------------------------
+
+
+def test_processes_in_memory_primary_entity() -> None:
+    artifact = make_artifact()
+    repository = FakeEntityRepository()
+    primary_entity = make_jira_entity()
+
+    result = make_processor(repository).process(
+        artifact, primary_entity=primary_entity
+    )
+
+    assert repository.get(primary_entity.id) is None
+    assert [entity.id for entity in result.entities].count(primary_entity.id) == 1
+    assert len(result.events) == 4
+    assert all(event.entity_id == primary_entity.id for event in result.events)
+    assert len(result.evidence) == 3
+    assert all(primary_entity.id in item.entity_ids for item in result.evidence)
+
+
+def test_rejects_mismatched_primary_entity() -> None:
+    artifact = make_artifact()
+    repository = FakeEntityRepository()
+    wrong_entity = make_jira_entity().model_copy(
+        update={"id": "jira:PAY-9999"}
+    )
+
+    with pytest.raises(ValueError, match="primary entity"):
+        make_processor(repository).process(
+            artifact, primary_entity=wrong_entity
+        )
+
+
+def test_does_not_duplicate_supplied_primary_entity() -> None:
+    artifact = make_artifact()
+    primary_entity = make_jira_entity()
+    repository = FakeEntityRepository(
+        entities={primary_entity.id: primary_entity}
+    )
+
+    result = make_processor(repository).process(
+        artifact, primary_entity=primary_entity
+    )
+
+    assert [entity.id for entity in result.entities].count(primary_entity.id) == 1

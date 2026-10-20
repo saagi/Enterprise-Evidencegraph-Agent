@@ -59,9 +59,10 @@ class ArtifactProcessor:
         self._relationship_extractor = relationship_extractor
 
     def process(
-        self,
-        artifact: CanonicalArtifact,
-    ) -> ProcessingResult:
+    self,
+    artifact: CanonicalArtifact,
+    primary_entity: Entity | None = None,
+) -> ProcessingResult:
         # ---------------------------------------------------------
         # 1. Identify entity mentions
         # ---------------------------------------------------------
@@ -89,13 +90,17 @@ class ArtifactProcessor:
         # 3. Identify the artifact's primary entity
         # ---------------------------------------------------------
 
-        primary_entity_id = (
-            f"{artifact.source.value}:{artifact.source_id}"
-        )
+        primary_entity_id = f"{artifact.source.value}:{artifact.source_id}"
 
-        primary_entity = self._entity_resolver.get_entity(
-            primary_entity_id
-        )
+        if primary_entity is not None:
+            if primary_entity.id != primary_entity_id:
+                raise ValueError(
+                    "Provided primary entity does not match artifact identity"
+                )
+        else:
+            primary_entity = self._entity_resolver.get_entity(
+                primary_entity_id
+            )
 
         if primary_entity is not None:
             if all(
