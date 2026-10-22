@@ -484,3 +484,30 @@ def test_does_not_duplicate_supplied_primary_entity() -> None:
     )
 
     assert [entity.id for entity in result.entities].count(primary_entity.id) == 1
+
+
+def test_supplied_primary_entity_replaces_stored_version() -> None:
+    stored_entity = make_jira_entity()
+    repository = FakeEntityRepository(
+        entities={stored_entity.id: stored_entity}
+    )
+    refreshed_entity = stored_entity.model_copy(
+        update={
+            "name": "Updated payment investigation",
+            "updated_at": datetime(2026, 9, 21, tzinfo=UTC),
+            "metadata": {"priority": "High"},
+        }
+    )
+
+    result = make_processor(repository).process(
+        make_artifact(),
+        primary_entity=refreshed_entity,
+    )
+
+    primary_entities = [
+        entity
+        for entity in result.entities
+        if entity.id == refreshed_entity.id
+    ]
+    assert primary_entities == [refreshed_entity]
+    assert repository.get(stored_entity.id) == stored_entity

@@ -103,10 +103,11 @@ class ArtifactProcessor:
             )
 
         if primary_entity is not None:
-            if all(
-                entity.id != primary_entity.id
-                for entity in entities
-            ):
+            for index, entity in enumerate(entities):
+                if entity.id == primary_entity.id:
+                    entities[index] = primary_entity
+                    break
+            else:
                 entities.insert(0, primary_entity)
 
         # ---------------------------------------------------------
