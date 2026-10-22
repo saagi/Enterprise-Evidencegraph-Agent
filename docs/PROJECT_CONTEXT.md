@@ -43,6 +43,7 @@ app/
     postgres.py
     neo4j.py
     neo4j_repositories.py
+    graph_projection.py
     schema.py
     repositories.py
 
@@ -82,17 +83,29 @@ README.md
   canonical-ID MERGE writes, and get/save methods matching EntityRepository.
 - Neo4j entity unit tests and live integration tests for round trips,
   updates, idempotency, and duplicate-ID rejection.
+- PostgreSQL canonical relationship storage, with endpoint foreign keys,
+  confidence/type checks, preserved creation time, and immutable ID identity.
+- Atomic ingestion persistence includes validated relationships.
+- Neo4j allowlisted relationship projection and distinct, sorted, bidirectional
+  one-hop neighbors. RelationshipIdentity helper nodes enforce edge ID identity.
+- PostgreSQL-to-Neo4j full replay, optional post-commit ingestion projection,
+  explicit failure reporting, and repeatable recovery after partial graph writes.
+- Repository-aware PR mention resolution in GitHub artifacts and explicit GitHub
+  PR URL resolution in Jira/GitHub. Ambiguous Jira PR numbers stay unresolved.
 
 ## Testing
-- Verified baseline (2026-10-22): 101/101 tests passing on Python 3.12.15.
+- Verified baseline (2026-10-22): 156/156 tests passing on Python 3.12.15.
 - Includes Neo4j connection-manager tests and a regression test for
   refreshed primary entity replacement.
 - Includes 5 Neo4j entity unit tests and 6 live entity integration cases.
+- Includes relationship constraints/rollback, concurrent graph writes,
+  full replay recovery/serialization, and Jira-to-PR projection coverage.
 - Live Neo4j tests require NEO4J_PASSWORD from the environment or local .env;
   missing credentials skip these cases, while connection failures fail them.
 
 ## Current Development Checkpoint
-Neo4j infrastructure, connectivity, and entity persistence are complete.
+Neo4j infrastructure, entity/relationship persistence, one-hop traversal,
+and PostgreSQL-authoritative replay are implemented.
 
 Approved and implemented node representation:
 - Common :Entity label with canonical PostgreSQL entity ID as identity.
@@ -103,24 +116,43 @@ Approved and implemented node representation:
 - Timestamps use Neo4j datetime properties and convert back to Python datetime.
 - save() refreshes projected fields from the supplied canonical entity.
 
-NEXT: Finalize relationship persistence and synchronization design.
+Approved and implemented relationship representation:
+- PostgreSQL relationships table mirrors the Relationship domain model;
+  Text IDs support concatenated endpoint identities longer than 255 characters.
+- Source/target foreign keys refer to entities.id. Reusing an ID for different
+  endpoints or relationship type is rejected; confidence/provenance can update.
+- Directed Neo4j edges use the existing RelationshipType enum mapped to uppercase
+  Cypher types, with confidence, temporal properties, and JSON provenance/metadata.
+- Constrained :RelationshipIdentity helper nodes serialize each edge identity
+  across types on Neo4j Community; they are not canonical domain entities.
 
-Relationships are extracted but not persisted: PostgreSQL has no relationship
-table, and PostgresPersistenceService does not save result.relationships.
-Neo4j entity persistence is not yet wired into ingestion. Relationship schema
-and cross-store synchronization still require approval before implementation.
+Synchronization:
+- PostgresPersistenceService optionally accepts graph_projection; PostgreSQL
+  commits before replay begins. GraphProjectionError means PostgreSQL committed
+  successfully but Neo4j needs replay; PostgreSQL is never rolled back afterward.
+- Replay reads one committed PostgreSQL snapshot, validates it, then upserts
+  entities before relationships. Advisory locking serializes cooperating workers.
+- Run `python -m scripts.init_relationship_storage` once for the additive table,
+  then `python -m scripts.sync_graph` to initialize graph constraints and replay.
+- See docs/GRAPH_PERSISTENCE.md for wiring, recovery, and limitations.
+
+NEXT: Embedding generation and vector indexing.
+
+Known limitations: replay is upsert-only, materializes the full snapshot, and
+holds a PostgreSQL transaction during graph writes. No deletion propagation,
+outbox/background worker, or automatic retry scheduler exists. Out-of-order
+source payloads can still replace newer canonical state. An unscoped Jira PR
+number cannot safely identify a repository and is deliberately unresolved.
 
 ## Remaining Milestones
-1. Durable relationship storage and Neo4j relationship repository
-2. PostgreSQL-to-Neo4j synchronization
-3. Embedding generation and vector indexing
-4. BM25 and semantic retrieval
-5. Graph traversal and hybrid retrieval
-6. Reranking
-7. LangGraph investigation agent
-8. Evidence-grounded response generation
-9. FastAPI endpoints
-10. Evaluation and integration testing
+1. Embedding generation and vector indexing
+2. BM25 and semantic retrieval
+3. Multi-hop graph retrieval and hybrid retrieval
+4. Reranking
+5. LangGraph investigation agent
+6. Evidence-grounded response generation
+7. FastAPI endpoints
+8. Evaluation and integration testing
 
 ## Development Philosophy
 Build a complete end-to-end Jira/GitHub vertical

@@ -3,7 +3,9 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     String,
@@ -256,4 +258,34 @@ class EvidenceRow(Base):
     __table_args__ = (
         Index("ix_evidence_source_source_id", "source", "source_id"),
         Index("ix_evidence_timestamp", "timestamp"),
+    )
+
+
+class RelationshipRow(Base):
+    __tablename__ = "relationships"
+
+    # Relationship IDs concatenate canonical endpoint IDs and can exceed 255 characters.
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_entity_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("entities.id"), nullable=False
+    )
+    relationship_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_entity_id: Mapped[str] = mapped_column(
+        String(255), ForeignKey("entities.id"), nullable=False
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_relationship_confidence"),
+        CheckConstraint(
+            "relationship_type IN ('belongs_to', 'discussed_in', 'implemented_by', "
+            "'related_to', 'references', 'mentions')",
+            name="ck_relationship_type",
+        ),
+        Index("ix_relationships_source", "source_entity_id"),
+        Index("ix_relationships_target", "target_entity_id"),
     )

@@ -1,16 +1,28 @@
 
+from typing import Protocol
+
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.domain.models import CanonicalArtifact
 from app.ingestion.processor import ProcessingResult
 from app.storage.postgres import PostgresDatabase
+from app.storage.repositories import PostgresRelationshipRepository
 from app.storage.schema import (
     ArtifactRow,
     EntityRow,
     EventRow,
     EvidenceRow,
 )
+
+
+class GraphProjection(Protocol):
+    def replay(self) -> None:
+        ...
+
+
+class GraphProjectionError(RuntimeError):
+    """PostgreSQL committed, but the graph still needs replay."""
 
 
 class PostgresPersistenceService:
@@ -21,8 +33,13 @@ class PostgresPersistenceService:
     results are not committed to PostgreSQL.
     """
 
-    def __init__(self, database: PostgresDatabase):
+    def __init__(
+        self,
+        database: PostgresDatabase,
+        graph_projection: GraphProjection | None = None,
+    ) -> None:
         self._database = database
+        self._graph_projection = graph_projection
 
     def persist(
         self,
@@ -45,6 +62,19 @@ class PostgresPersistenceService:
 
             for event in result.events:
                 self._upsert_model(session, EventRow, event)
+
+            for relationship in result.relationships:
+                PostgresRelationshipRepository.save_in_session(session, relationship)
+
+        # PostgreSQL is committed before any graph operation starts.
+        if self._graph_projection is not None:
+            try:
+                self._graph_projection.replay()
+            except Exception as exc:
+                raise GraphProjectionError(
+                    "PostgreSQL ingestion committed, but Neo4j projection failed; "
+                    "retry graph replay to recover"
+                ) from exc
 
     @staticmethod
     def _upsert_artifact(
@@ -71,7 +101,7 @@ class PostgresPersistenceService:
 
         # JSONB must receive JSON-serializable values.
         if isinstance(model, object) and hasattr(model, "location"):
-            location = getattr(model, "location")
+            location = model.location
             values["location"] = (
                 location.model_dump(mode="json")
                 if location is not None

@@ -1,6 +1,7 @@
 
 from datetime import UTC, datetime
 from typing import Protocol
+from unittest.mock import Mock
 
 import pytest
 
@@ -19,10 +20,14 @@ from app.domain.services import (
     EntityResolver,
     EventExtractor,
     EvidenceExtractor,
+    ExtractedRelationship,
     RelationshipCandidate,
+    RelationshipExtractionOutput,
     RelationshipExtractionResult,
+    RelationshipExtractor,
 )
 from app.ingestion.processor import ArtifactProcessor
+from app.models.gateway import LLMGateway
 
 
 class FakeEntityRepository:
@@ -511,3 +516,125 @@ def test_supplied_primary_entity_replaces_stored_version() -> None:
     ]
     assert primary_entities == [refreshed_entity]
     assert repository.get(stored_entity.id) == stored_entity
+
+
+def make_pr_entity(repository: str, number: int = 829) -> Entity:
+    now = datetime(2026, 9, 21, tzinfo=UTC)
+    source_id = f"{repository}:pr:{number}"
+    return Entity(
+        id=f"github:{source_id}",
+        type=EntityType.GITHUB_PR,
+        name="Payment fix",
+        source=Source.GITHUB,
+        source_id=source_id,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_github_pr_reference_resolves_only_in_artifact_repository(
+    target_exists: bool,
+) -> None:
+    target = make_pr_entity("acme/payments-api")
+    other = make_pr_entity("other/payments-api")
+    entities = {other.id: other}
+    if target_exists:
+        entities[target.id] = target
+    primary = make_pr_entity("acme/payments-api", number=100)
+    artifact = CanonicalArtifact(
+        id=f"artifact:{primary.id}",
+        source=Source.GITHUB,
+        source_id=primary.source_id,
+        artifact_type="github_pr",
+        title="Follow-up",
+        content={"body": "Follow up on PR #829."},
+        metadata={"repository": "acme/payments-api"},
+        created_at=primary.created_at,
+        updated_at=primary.updated_at,
+    )
+
+    result = make_processor(FakeEntityRepository(entities)).process(
+        artifact, primary_entity=primary
+    )
+
+    resolution = result.entity_resolutions[0]
+    assert resolution.entity_id == (target.id if target_exists else None)
+    assert other.id not in [entity.id for entity in result.entities]
+
+
+def test_jira_pr_number_stays_unresolved_even_with_matching_entities() -> None:
+    first = make_pr_entity("acme/payments-api")
+    second = make_pr_entity("other/payments-api")
+    artifact = make_artifact().model_copy(
+        update={"metadata": {"repository": "acme/payments-api"}}
+    )
+
+    result = make_processor(
+        FakeEntityRepository({first.id: first, second.id: second})
+    ).process(artifact, primary_entity=make_jira_entity())
+
+    resolution = next(item for item in result.entity_resolutions if item.mention == "PR #829")
+    assert resolution.status == EntityResolutionStatus.UNRESOLVED
+    assert resolution.entity_id is None
+
+
+def test_jira_explicit_pr_url_resolves_repository_scoped_entity() -> None:
+    target = make_pr_entity("acme/payments-api")
+    url = "https://github.com/acme/payments-api/pull/829"
+    artifact = make_artifact().model_copy(
+        update={"content": {"description": f"Fix implemented by {url}."}}
+    )
+
+    result = make_processor(FakeEntityRepository({target.id: target})).process(
+        artifact, primary_entity=make_jira_entity()
+    )
+
+    resolution = next(item for item in result.entity_resolutions if item.mention == url)
+    assert resolution.entity_id == target.id
+    assert target.id in [entity.id for entity in result.entities]
+
+
+@pytest.mark.parametrize("explicit_url", [True, False])
+def test_real_relationship_extractor_uses_repository_aware_resolution(
+    explicit_url: bool,
+) -> None:
+    target = make_pr_entity("acme/payments-api")
+    other = make_pr_entity("other/payments-api")
+    mention = (
+        "https://github.com/acme/payments-api/pull/829"
+        if explicit_url
+        else "PR #829"
+    )
+    artifact = make_artifact().model_copy(
+        update={"content": {"description": f"Fix implemented by {mention}."}}
+    )
+    gateway = Mock(spec=LLMGateway)
+    gateway.generate_structured.return_value = RelationshipExtractionOutput(
+        relationships=[
+            ExtractedRelationship(
+                source_mention="PAY-1842",
+                target_mention=mention,
+                relationship_type=RelationshipType.IMPLEMENTED_BY,
+                confidence=0.95,
+                evidence_text=f"Fix implemented by {mention}.",
+            )
+        ]
+    )
+    processor = ArtifactProcessor(
+        entity_registry=create_default_entity_registry(),
+        entity_resolver=EntityResolver(FakeEntityRepository({target.id: target, other.id: other})),
+        event_extractor=EventExtractor(),
+        evidence_extractor=EvidenceExtractor(),
+        relationship_extractor=RelationshipExtractor(llm_gateway=gateway),
+    )
+
+    result = processor.process(artifact, primary_entity=make_jira_entity())
+
+    assert len(result.relationship_candidates) == 1
+    if explicit_url:
+        assert len(result.relationships) == 1
+        assert result.relationships[0].target_entity_id == target.id
+        assert result.relationships[0].source_entity_id == "jira:PAY-1842"
+    else:
+        assert result.relationships == []

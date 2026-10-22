@@ -4,12 +4,15 @@ from typing import TypeVar
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
 from app.domain.models import (
     CanonicalArtifact,
     Entity,
     Event,
     Evidence,
+    Relationship,
+    RelationshipType,
 )
 from app.storage.postgres import PostgresDatabase
 from app.storage.schema import (
@@ -17,10 +20,72 @@ from app.storage.schema import (
     EntityRow,
     EventRow,
     EvidenceRow,
+    RelationshipRow,
 )
 
-
 T = TypeVar("T", bound=BaseModel)
+
+
+class PostgresRelationshipRepository:
+    """Canonical relationship storage; endpoint/type identity is immutable."""
+
+    def __init__(self, database: PostgresDatabase) -> None:
+        self._database = database
+
+    def save(self, relationship: Relationship) -> None:
+        with self._database.session() as session:
+            self.save_in_session(session, relationship)
+
+    @staticmethod
+    def save_in_session(session: Session, relationship: Relationship) -> None:
+        values = relationship.model_dump(mode="python")
+        values["metadata_"] = values.pop("metadata")
+        statement = insert(RelationshipRow).values(**values)
+        excluded = statement.excluded
+        upsert_statement = statement.on_conflict_do_update(
+            index_elements=["id"],
+            set_={
+                "confidence": excluded.confidence,
+                "provenance": excluded.provenance,
+                "observed_at": excluded.observed_at,
+                "metadata": excluded.metadata,
+            },
+            where=(
+                (RelationshipRow.source_entity_id == excluded.source_entity_id)
+                & (RelationshipRow.relationship_type == excluded.relationship_type)
+                & (RelationshipRow.target_entity_id == excluded.target_entity_id)
+            ),
+        ).returning(RelationshipRow.id)
+        if session.scalar(upsert_statement) is None:
+            raise ValueError("Relationship ID already belongs to different endpoints or type")
+
+    def get(self, relationship_id: str) -> Relationship | None:
+        with self._database.session() as session:
+            row = session.get(RelationshipRow, relationship_id)
+            if row is None:
+                return None
+            return self._from_row(row)
+
+    def list_all(self) -> list[Relationship]:
+        with self._database.session() as session:
+            return [
+                self._from_row(row)
+                for row in session.scalars(select(RelationshipRow).order_by(RelationshipRow.id))
+            ]
+
+    @staticmethod
+    def _from_row(row: RelationshipRow) -> Relationship:
+        return Relationship(
+            id=row.id,
+            source_entity_id=row.source_entity_id,
+            relationship_type=RelationshipType(row.relationship_type),
+            target_entity_id=row.target_entity_id,
+            confidence=row.confidence,
+            provenance=row.provenance,
+            observed_at=row.observed_at,
+            created_at=row.created_at,
+            metadata=row.metadata_,
+        )
 
 
 def _serialize(model: BaseModel) -> dict:

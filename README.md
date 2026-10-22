@@ -36,7 +36,7 @@ flowchart TD
     ER --> DB[(PostgreSQL)]
     EV --> DB
     RR --> DB
-    DB -. Planned .-> NG[(Neo4j graph)]
+    DB -->|Post-commit projection / replay| NG[(Neo4j graph)]
     DB -. Planned .-> VX[(Qdrant vectors + BM25)]
     NG -. Planned .-> AG[LangGraph investigation agent]
     VX -. Planned .-> AG
@@ -65,16 +65,20 @@ flowchart TD
 - **Optional LLM-assisted relationship extraction** with deterministic validation of resolved targets.
 - **Ingestion orchestrator** that creates or updates a primary entity before processing its artifact.
 - **PostgreSQL storage** using SQLAlchemy 2, psycopg, JSONB, and conflict-aware upserts.
-- **Unit tests** for domain and ingestion behavior, plus **PostgreSQL integration tests** under development.
+- **Atomic ingestion persistence** for artifacts, entities, events, evidence, and validated relationships.
+- **Neo4j projection** with canonical IDs, idempotent entities/edges, and one-hop neighbors.
+- **Replay and recovery** from committed PostgreSQL data, with optional post-commit projection.
+- **Unit and live integration tests** covering PostgreSQL/Neo4j rollback, retries, and concurrency.
+
+Graph setup, ingestion wiring, PR resolution rules, and recovery limits are documented
+in [Graph persistence and recovery](docs/GRAPH_PERSISTENCE.md).
 
 ### Planned next
 
-1. Persist complete ingestion results transactionally and test the Jira/GitHub-to-PostgreSQL flow.
-2. Add Neo4j relationship storage and traversal.
-3. Add vector embeddings, Qdrant, BM25, hybrid retrieval, and reranking.
-4. Build a LangGraph investigation workflow with evidence validation and conflict handling.
-5. Expose investigation endpoints through FastAPI.
-6. Evaluate retrieval quality, temporal correctness, groundedness, latency, and cost.
+1. Add vector embeddings, Qdrant, BM25, hybrid retrieval, and reranking.
+2. Build a LangGraph investigation workflow with evidence validation and conflict handling.
+3. Expose investigation endpoints through FastAPI.
+4. Evaluate retrieval quality, temporal correctness, groundedness, latency, and cost.
 
 Slack ingestion, autonomous actions, and cloud-scale deployment are **outside the initial V1 scope**.
 
@@ -88,7 +92,7 @@ Slack ingestion, autonomous actions, and cloud-scale deployment are **outside th
 | LLM integration | Provider-independent gateway; OpenAI implementation |
 | Testing | pytest |
 | Local infrastructure | Docker Compose |
-| Graph storage *(planned)* | Neo4j |
+| Graph storage | Neo4j 5 Community |
 | Semantic search *(planned)* | Qdrant, embeddings |
 | Keyword retrieval *(planned)* | BM25 |
 | Agent orchestration *(planned)* | LangGraph |
@@ -199,7 +203,11 @@ Verify the schema:
 docker compose exec postgres psql -U evidencegraph -d evidencegraph -c "\dt"
 ```
 
-Expected tables: `artifacts`, `entities`, `events`, `evidence`.
+Expected tables: `artifacts`, `entities`, `events`, `evidence`, `relationships`.
+
+For an existing database, initialize the additive relationship table with
+`python -m scripts.init_relationship_storage`. Run `python -m scripts.sync_graph`
+to initialize graph constraints and replay canonical records into Neo4j.
 
 > `Base.metadata.create_all()` is a development bootstrap step, not a migration strategy. Schema migrations will be added later.
 

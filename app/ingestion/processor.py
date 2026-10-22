@@ -8,6 +8,7 @@ from app.domain.models import (
     Event,
     Evidence,
     Relationship,
+    Source,
 )
 from app.domain.services import (
     EntityResolutionResult,
@@ -68,11 +69,17 @@ class ArtifactProcessor:
         # ---------------------------------------------------------
 
         text = self._extract_searchable_text(artifact)
+        repository = artifact.metadata.get("repository")
 
         candidates = self._entity_registry.identify(
             text=text,
             source=artifact.source,
             artifact_id=artifact.id,
+            repository=(
+                repository
+                if artifact.source == Source.GITHUB and isinstance(repository, str)
+                else None
+            ),
         )
 
         # ---------------------------------------------------------
