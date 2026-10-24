@@ -39,6 +39,8 @@ app/
   models/
     gateway.py
     openai_gateway.py
+    cohere_embeddings.py
+    local_tokenizer.py
   storage/
     postgres.py
     neo4j.py
@@ -92,9 +94,14 @@ README.md
   explicit failure reporting, and repeatable recovery after partial graph writes.
 - Repository-aware PR mention resolution in GitHub artifacts and explicit GitHub
   PR URL resolution in Jira/GitHub. Ambiguous Jira PR numbers stay unresolved.
+- First embedding increment: Cohere document/query adapter, model-metadata
+  tokenizer loading, local counting/configuration fingerprinting, masked settings,
+  and an explicit compatibility-check command. Provider tests are mocked;
+  live Cohere model/tokenizer access remains unverified.
 
 ## Testing
-- Verified baseline (2026-10-22): 156/156 tests passing on Python 3.12.15.
+- Verified baseline (2026-10-24): 184/184 tests passing on Python 3.12.15.
+- Includes 28 embedding adapter/tokenizer/compatibility tests with no Cohere calls.
 - Includes Neo4j connection-manager tests and a regression test for
   refreshed primary entity replacement.
 - Includes 5 Neo4j entity unit tests and 6 live entity integration cases.
@@ -136,7 +143,19 @@ Synchronization:
   then `python -m scripts.sync_graph` to initialize graph constraints and replay.
 - See docs/GRAPH_PERSISTENCE.md for wiring, recovery, and limitations.
 
-NEXT: Embedding generation and vector indexing.
+NEXT: Verify Cohere model/tokenizer access, then implement source-aware chunking
+and vector indexing. The first embedding adapter/tokenizer increment is complete.
+
+Embedding/vector decisions and their tradeoffs are recorded in
+[docs/design/EMBEDDING_LAYER.md](design/EMBEDDING_LAYER.md). Its status tables
+distinguish implemented adapter code from the remaining design. Cohere model
+access and a matching local tokenizer remain unverified. See [design maintenance rules](design/README.md)
+before implementing or changing a decision.
+
+Install dependencies from pyproject.toml with `python -m pip install -e .`.
+`python -m scripts.check_embedding_compatibility` checks local prerequisites only;
+`--live` explicitly calls Cohere with synthetic inputs. The user will add the real
+COHERE_API_KEY later; no Cohere requests were made in this increment.
 
 Known limitations: replay is upsert-only, materializes the full snapshot, and
 holds a PostgreSQL transaction during graph writes. No deletion propagation,

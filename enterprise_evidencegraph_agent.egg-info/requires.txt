@@ -4,6 +4,8 @@ openai<3.0,>=2.0
 sqlalchemy<3.0,>=2.0
 psycopg[binary]<4.0,>=3.2
 neo4j<6.0,>=5.28
+httpx<1.0,>=0.27
+tokenizers<1.0,>=0.20
 
 [dev]
 pytest<9.0,>=8.3

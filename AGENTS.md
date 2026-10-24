@@ -42,6 +42,12 @@ Jira and GitHub evidence.
 - Reuse existing models and repository conventions.
 - Work one file or small logical change at a time.
 - Explain design decisions and tradeoffs.
+- Read the relevant record in docs/design/ before changing a subsystem.
+- Document new design decisions and tradeoffs before implementation.
+- When a decision changes, update its design record and dated change history
+  as part of the same work; distinguish agreed, proposed, and implemented behavior.
+- Ask for the user's preference before recommending design choices unless
+  the user requests a recommendation or authorizes autonomous decisions.
 - Add tests for new functionality.
 - Run relevant tests after modifications.
 - Do not refactor unrelated code.

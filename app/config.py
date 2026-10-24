@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,11 @@ class Settings(BaseSettings):
 
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
+
+    cohere_api_key: SecretStr | None = Field(default=None, repr=False)
+    embedding_model: str = "embed-v5.0-fast"
+    embedding_dimensions: int = Field(default=1024, ge=1)
+    embedding_timeout_seconds: float = Field(default=30.0, gt=0)
 
 
 @lru_cache
